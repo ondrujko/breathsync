@@ -140,29 +140,29 @@
       const hintMotion = document.getElementById('hint-motion');
       const phaseEl = document.getElementById('phase-indicator');
 
-      // ---------- State ----------
+      // ---------- Состояние ----------
       let running = false;
       let startWallTime = null;
       let sessionTime = 0;
-      let lastFrameTime = performance.now() / 1000;
       let motionEnabled = false;
       let lastMotionTime = 0;
 
-      // ---- Signal processing state (low latency) ----
-      let gravityEstimate = 0;          // экспоненциальное скользящее среднее для гравитации
-      let filteredBreath = 0;          // результат основного НЧ фильтра
-      const GRAVITY_ALPHA = 0.01;      // очень медленное обновление (~1.6 с)
-      const BREATH_ALPHA = 0.03;       // основной фильтр (f_c ~0.3 Гц при 60 Гц)
+      // Фильтры (экспоненциальные, без оконной задержки)
+      let gravityEstimate = 0;
+      let filteredBreath = 0;
+      const GRAVITY_ALPHA = 0.01;
+      const BREATH_ALPHA = 0.03;
 
       // Амплитудная нормализация
       let maxAbsRecent = 0.01;
       let scaleSmoothed = 1.0;
-      const AMP_WINDOW_MS = 5000;      // 5 секунд для адаптации масштаба
-      const absHistory = [];            // {time, abs}
+      const AMP_WINDOW_MS = 5000;
+      const absHistory = [];
 
-      // Буфер данных для отрисовки (точки {time, value})
+      // Буфер отрисовки
       const dataBuffer = [];
-      const VISIBLE_DURATION = 20;     // секунд на экране
+      const VISIBLE_DURATION = 20; // секунд
+      const BUFFER_STEP = 0.05;    // шаг для предзаполнения (50 мс)
 
       // ---------- Canvas ----------
       function resizeCanvas() {
@@ -171,6 +171,18 @@
       }
       window.addEventListener('resize', resizeCanvas);
       resizeCanvas();
+
+      // ---------- Инициализация буфера нулями ----------
+      function fillBufferWithZeros(nowSec) {
+        dataBuffer.length = 0;
+        for (let t = nowSec - VISIBLE_DURATION; t <= nowSec; t += BUFFER_STEP) {
+          dataBuffer.push({ time: t, value: 0 });
+        }
+        // убедимся, что последняя точка точно на nowSec
+        if (dataBuffer.length === 0 || dataBuffer[dataBuffer.length-1].time < nowSec) {
+          dataBuffer.push({ time: nowSec, value: 0 });
+        }
+      }
 
       // ---------- Motion ----------
       function addMotionListener() {
@@ -188,17 +200,16 @@
 
         if (!running) return;
 
-        // 1. Сумма модулей (без изменений по ТЗ)
         const raw = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
 
-        // 2. Вычитание гравитации (экспоненциальное скользящее среднее, без окна)
+        // Экспоненциальное скользящее среднее для гравитации
         gravityEstimate = GRAVITY_ALPHA * raw + (1 - GRAVITY_ALPHA) * gravityEstimate;
         const detrended = raw - gravityEstimate;
 
-        // 3. Низкочастотный фильтр (дыхание)
+        // НЧ-фильтр дыхания
         filteredBreath = BREATH_ALPHA * detrended + (1 - BREATH_ALPHA) * filteredBreath;
 
-        // 4. Амплитудная нормализация (отслеживаем максимум за 5 секунд)
+        // Амплитудная нормализация с ограничением
         const absVal = Math.abs(filteredBreath);
         absHistory.push({ time: now, abs: absVal });
         while (absHistory.length && now - absHistory[0].time > AMP_WINDOW_MS) {
@@ -208,14 +219,16 @@
         for (let i = 0; i < absHistory.length; i++) {
           if (absHistory[i].abs > maxAbs) maxAbs = absHistory[i].abs;
         }
-        const targetScale = 1.0 / (maxAbs + 0.001); // избегаем деления на ноль
-        scaleSmoothed = scaleSmoothed * 0.9 + targetScale * 0.1;
+        const targetScale = Math.min(10.0, Math.max(0.5, 1.0 / (maxAbs + 0.001)));
+        scaleSmoothed = scaleSmoothed * 0.95 + targetScale * 0.05; // медленная адаптация
+        // Жёсткое ограничение на всякий случай
+        scaleSmoothed = Math.min(5.0, Math.max(0.5, scaleSmoothed));
 
-        // 5. Добавляем точку в буфер (время в секундах)
+        // Добавление точки в буфер
         const timeSec = now / 1000;
         dataBuffer.push({ time: timeSec, value: filteredBreath });
 
-        // Удаляем старые точки за пределами видимого окна
+        // Удаление старых точек
         while (dataBuffer.length && timeSec - dataBuffer[0].time > VISIBLE_DURATION) {
           dataBuffer.shift();
         }
@@ -227,7 +240,7 @@
           DeviceMotionEvent.requestPermission()
             .then(state => {
               if (state === 'granted') enableMotion();
-              else alert('Разрешение на датчики отклонено. Приложение не будет работать.');
+              else alert('Разрешение на датчики отклонено.');
             })
             .catch(console.error);
         } else {
@@ -252,11 +265,11 @@
         }
       } else {
         permissionBox.classList.remove('hidden');
-        permissionBox.querySelector('p').textContent = 'Ваше устройство не поддерживает датчики движения.';
+        permissionBox.querySelector('p').textContent = 'Устройство не поддерживает датчики движения.';
         enableMotionBtn.style.display = 'none';
       }
 
-      // ---------- Start / Stop ----------
+      // ---------- Старт / Стоп ----------
       function toggleRunning() {
         if (!motionEnabled) {
           alert('Сначала разрешите доступ к датчикам.');
@@ -264,8 +277,8 @@
         }
         const nowSec = performance.now() / 1000;
         if (!running) {
-          // СТАРТ: очищаем всё, начинаем сессию
-          dataBuffer.length = 0;
+          // СТАРТ: инициализируем буфер нулями и сбрасываем фильтры
+          fillBufferWithZeros(nowSec);
           absHistory.length = 0;
           gravityEstimate = 0;
           filteredBreath = 0;
@@ -275,7 +288,6 @@
           startWallTime = nowSec;
           sessionTime = 0;
           running = true;
-          lastFrameTime = nowSec;
           startBtn.textContent = 'Стоп';
           hintMotion.style.display = 'none';
         } else {
@@ -334,17 +346,15 @@
             else { ctx.lineTo(x, y); }
           }
 
-          // Продлеваем линию до правого края (текущий момент)
-          if (!first) {
-            const last = dataBuffer[dataBuffer.length - 1];
-            const lastX = w - (currentTimeSec - last.time) * pxPerSec;
-            const lastY = midY - (last.value * scaleSmoothed) * refAmplitude;
-            ctx.lineTo(w, lastY);
-          }
+          // Продлеваем до правого края
+          const lastPt = dataBuffer[dataBuffer.length - 1];
+          const lastX = w - (currentTimeSec - lastPt.time) * pxPerSec;
+          const lastY = midY - (lastPt.value * scaleSmoothed) * refAmplitude;
+          ctx.lineTo(w, lastY);
           ctx.stroke();
         }
 
-        // Лёгкая горизонтальная линия по центру
+        // Центральная линия
         ctx.strokeStyle = 'rgba(255,255,255,0.08)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
@@ -367,7 +377,6 @@
         }
 
         drawCanvas(sessionTime);
-        lastFrameTime = nowSec;
       }
 
       requestAnimationFrame(animationLoop);
