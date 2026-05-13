@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>BreathSync v0.06</title>
+  <title>BreathSync v0.07</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: white; touch-action: manipulation; }
@@ -26,6 +26,7 @@
     #permission-box p { margin-bottom: 1.5rem; font-size: 1rem; line-height: 1.4; color: #ccc; }
     button { background: #6c63ff; border: none; color: white; font-weight: 600; padding: 0.75rem 2rem; border-radius: 2rem; font-size: 1rem; letter-spacing: 0.5px; cursor: pointer; transition: background 0.2s; pointer-events: auto; box-shadow: 0 10px 20px rgba(108, 99, 255, 0.3); }
     button:active { background: #5a52e0; }
+    button:disabled { opacity: 0.5; pointer-events: none; }
     #main-ui { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; pointer-events: none; }
     #startBtn { pointer-events: auto; background: #6c63ff; }
     #hint-motion { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); padding: 0.8rem 1.5rem; border-radius: 2rem; font-size: 0.95rem; color: #ffb347; text-align: center; pointer-events: none; display: none; }
@@ -34,17 +35,17 @@
   </style>
 </head>
 <body>
-  <div id="version-badge">v0.06</div>
+  <div id="version-badge">v0.07</div>
   <canvas id="breathCanvas"></canvas>
   <div id="ui-layer">
     <div id="permission-box" class="hidden">
-      <p>Для работы приложения разрешите доступ к датчикам движения</p>
-      <button id="enable-motion-btn">Разрешить</button>
+      <p id="perm-message">Для работы приложения разрешите доступ к датчикам движения</p>
+      <button id="enable-motion-btn" aria-label="Разрешить датчики движения">Разрешить</button>
     </div>
     <div id="main-ui" class="hidden">
-      <div id="hint-motion">Положите телефон на живот</div>
-      <button id="startBtn">Старт</button>
-      <div id="phase-indicator">Вдох</div>
+      <div id="hint-motion" role="alert">Положите телефон на живот</div>
+      <button id="startBtn" aria-label="Старт дыхательной сессии">Старт</button>
+      <div id="phase-indicator" role="status" aria-live="polite">Вдох</div>
     </div>
   </div>
 
@@ -58,6 +59,7 @@
       const startBtn = document.getElementById('startBtn');
       const hintMotion = document.getElementById('hint-motion');
       const phaseEl = document.getElementById('phase-indicator');
+      const permMessage = document.getElementById('perm-message');
 
       let running = false;
       let startWallTime = null;
@@ -66,20 +68,22 @@
       let lastMotionTime = 0;
 
       // ФИЛЬТРЫ С НИЗКОЙ ЗАДЕРЖКОЙ
-      let gravityEstimate = 0;
+      let gravityEstimate = null;
       let filteredBreath = 0;
-      const GRAVITY_ALPHA = 0.1;   // было 0.01 – срезало задержку high-pass
-      const BREATH_ALPHA = 0.08;   // немного увеличено для быстрого отклика
+      const GRAVITY_ALPHA = 0.1;
+      const BREATH_ALPHA = 0.08;
 
-      // Амплитудная нормализация (ускорено)
       let scaleSmoothed = 1.0;
-      const AMP_WINDOW_MS = 3000;  // 3 секунды вместо 5
+      const AMP_WINDOW_MS = 3000;
       const absHistory = [];
 
-      // Буфер отрисовки
       const dataBuffer = [];
-      const VISIBLE_DURATION = 20; // секунд на экране
-      const PREfill_SEC = 0.5;     // заполняем нулями только последние 0.5 с, чтобы не было длинной плоской линии
+      const VISIBLE_DURATION = 20;
+      let firstMeasurement = true;
+
+      // Децимация событий (не чаще ~33 Гц)
+      let lastEventTime = 0;
+      const MIN_EVENT_INTERVAL = 30; // мс
 
       let logicalWidth = window.innerWidth;
       let logicalHeight = window.innerHeight;
@@ -93,106 +97,165 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
       window.addEventListener('resize', resizeCanvas);
-      window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 50));
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => {
+          clearTimeout(window._resizeTimer);
+          window._resizeTimer = setTimeout(resizeCanvas, 50);
+        });
+      }
       resizeCanvas();
 
-      function fillBufferWithZeros(nowSec) {
-        dataBuffer.length = 0;
-        // Заполняем только небольшой "хвост", чтобы линия сразу появилась, но плоская часть быстро ушла
-        for (let t = nowSec - PREfill_SEC; t <= nowSec; t += 0.05) {
-          dataBuffer.push({ time: t, value: 0 });
-        }
-        if (dataBuffer.length === 0 || dataBuffer[dataBuffer.length-1].time < nowSec) {
-          dataBuffer.push({ time: nowSec, value: 0 });
-        }
-      }
-
-      function addMotionListener() {
-        if (window.DeviceMotionEvent) {
-          window.addEventListener('devicemotion', handleMotion);
-          motionEnabled = true;
-        }
-      }
+      // Ссылка на текущий обработчик (для удаления)
+      let currentMotionHandler = null;
 
       function handleMotion(event) {
         const acc = event.accelerationIncludingGravity;
-        if (!acc || acc.x === null) return;
+        if (!acc || acc.x == null) return;
+
         const now = performance.now();
+        // Децимация
+        if (now - lastEventTime < MIN_EVENT_INTERVAL) return;
+        lastEventTime = now;
         lastMotionTime = now;
+
         if (!running) return;
 
         const raw = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
 
-        // High-pass для удаления гравитации (быстрый α)
+        // Инициализация при первом измерении
+        if (firstMeasurement || gravityEstimate === null) {
+          gravityEstimate = raw;
+          filteredBreath = 0;
+          firstMeasurement = false;
+          // Заполняем буфер этим значением на всю видимую историю
+          const nowSec = now / 1000;
+          dataBuffer.length = 0;
+          for (let t = nowSec - VISIBLE_DURATION; t <= nowSec; t += 0.05) {
+            dataBuffer.push({ time: t, value: 0 });
+          }
+          if (dataBuffer.length === 0) {
+            dataBuffer.push({ time: nowSec, value: 0 });
+          }
+          return;
+        }
+
+        // High-pass для удаления гравитации
         gravityEstimate = GRAVITY_ALPHA * raw + (1 - GRAVITY_ALPHA) * gravityEstimate;
         const detrended = raw - gravityEstimate;
 
-        // Low-pass для выделения дыхания (увеличенный α)
+        // Low-pass для выделения дыхания
         filteredBreath = BREATH_ALPHA * detrended + (1 - BREATH_ALPHA) * filteredBreath;
 
         // Амплитудная адаптация
         const absVal = Math.abs(filteredBreath);
         absHistory.push({ time: now, abs: absVal });
-        while (absHistory.length && now - absHistory[0].time > AMP_WINDOW_MS) absHistory.shift();
+        while (absHistory.length && now - absHistory[0].time > AMP_WINDOW_MS) {
+          absHistory.shift();
+        }
         let maxAbs = 0.01;
-        for (let i = 0; i < absHistory.length; i++) if (absHistory[i].abs > maxAbs) maxAbs = absHistory[i].abs;
-        const targetScale = Math.min(10.0, Math.max(0.5, 1.0 / (maxAbs + 0.001)));
-        scaleSmoothed = scaleSmoothed * 0.9 + targetScale * 0.1;  // быстрее адаптация (было 0.95/0.05)
-        scaleSmoothed = Math.min(5.0, Math.max(0.5, scaleSmoothed));
+        for (let i = 0; i < absHistory.length; i++) {
+          if (absHistory[i].abs > maxAbs) maxAbs = absHistory[i].abs;
+        }
+        const targetScale = Math.min(3.0, Math.max(0.8, 1.0 / (maxAbs + 0.001)));
+        scaleSmoothed = scaleSmoothed * 0.95 + targetScale * 0.05;
+        scaleSmoothed = Math.min(3.0, Math.max(0.8, scaleSmoothed));
 
         const timeSec = now / 1000;
         dataBuffer.push({ time: timeSec, value: filteredBreath });
 
-        // Удаляем точки старше видимого окна
         while (dataBuffer.length && timeSec - dataBuffer[0].time > VISIBLE_DURATION) {
           dataBuffer.shift();
+        }
+      }
+
+      function addMotionListener() {
+        if (!currentMotionHandler) {
+          currentMotionHandler = handleMotion;
+          window.addEventListener('devicemotion', currentMotionHandler);
+          motionEnabled = true;
+        }
+      }
+
+      function removeMotionListener() {
+        if (currentMotionHandler) {
+          window.removeEventListener('devicemotion', currentMotionHandler);
+          currentMotionHandler = null;
+          motionEnabled = false;
         }
       }
 
       function requestMotionPermission() {
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
           DeviceMotionEvent.requestPermission()
-            .then(state => { if (state === 'granted') enableMotion(); else alert('Разрешение отклонено.'); })
+            .then(state => {
+              if (state === 'granted') {
+                enableMotion();
+              } else {
+                // Отказ
+                permMessage.textContent = 'Доступ к датчикам запрещён. Приложение не может работать.';
+                enableMotionBtn.disabled = true;
+                enableMotionBtn.textContent = 'Недоступно';
+              }
+            })
             .catch(console.error);
-        } else { enableMotion(); }
+        } else {
+          enableMotion();
+        }
       }
 
       function enableMotion() {
-        addMotionListener();
         permissionBox.classList.add('hidden');
         mainUI.classList.remove('hidden');
+        addMotionListener();
       }
 
+      // Инициализация
       if (window.DeviceMotionEvent) {
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
           permissionBox.classList.remove('hidden');
           mainUI.classList.add('hidden');
           enableMotionBtn.addEventListener('click', requestMotionPermission);
-        } else { enableMotion(); }
+        } else {
+          enableMotion();
+        }
       } else {
         permissionBox.classList.remove('hidden');
-        permissionBox.querySelector('p').textContent = 'Устройство не поддерживает датчики движения.';
-        enableMotionBtn.style.display = 'none';
+        permMessage.textContent = 'Ваше устройство не поддерживает датчики движения.';
+        enableMotionBtn.disabled = true;
+        enableMotionBtn.textContent = 'Недоступно';
       }
 
       function toggleRunning() {
-        if (!motionEnabled) { alert('Сначала разрешите доступ к датчикам.'); return; }
-        const nowSec = performance.now() / 1000;
+        if (!motionEnabled) {
+          alert('Сначала разрешите доступ к датчикам.');
+          return;
+        }
+
         if (!running) {
-          fillBufferWithZeros(nowSec);
+          // СТАРТ
+          const nowSec = performance.now() / 1000;
+          dataBuffer.length = 0;
           absHistory.length = 0;
-          gravityEstimate = 0;
+          gravityEstimate = null;
           filteredBreath = 0;
+          firstMeasurement = true;
           scaleSmoothed = 1.0;
+          lastEventTime = 0;
+
           startWallTime = nowSec;
           sessionTime = 0;
           running = true;
           startBtn.textContent = 'Стоп';
           hintMotion.style.display = 'none';
+          addMotionListener(); // на всякий случай (если был удалён)
         } else {
+          // СТОП
+          const nowSec = performance.now() / 1000;
           sessionTime = nowSec - startWallTime;
           running = false;
           startBtn.textContent = 'Старт';
+          hintMotion.style.display = 'none';
+          removeMotionListener();
         }
       }
       startBtn.addEventListener('click', toggleRunning);
@@ -200,6 +263,7 @@
       function drawCanvas(currentTimeSec) {
         const w = logicalWidth, h = logicalHeight;
         ctx.clearRect(0, 0, w, h);
+
         const marginTop = 20, marginBottom = 20;
         const graphTop = marginTop, graphBottom = h - marginBottom;
         const graphHeight = graphBottom - graphTop;
@@ -236,7 +300,6 @@
           const lastX = w - (currentTimeSec - lastPt.time) * pxPerSec;
           const lastY = midY - (lastPt.value * scaleSmoothed) * refAmplitude;
 
-          // Экстраполяция от левого края
           ctx.moveTo(0, firstY);
           if (firstX > 0) ctx.lineTo(firstX, firstY);
 
@@ -261,29 +324,51 @@
         ctx.stroke();
       }
 
-      function animationLoop(timestamp) {
+      function animationLoop() {
         requestAnimationFrame(animationLoop);
-        const nowSec = timestamp / 1000;
+        const nowSec = performance.now() / 1000; // единый источник времени
+
         if (running) {
           sessionTime = nowSec - startWallTime;
           const derivative = Math.cos(2 * Math.PI * 0.1 * sessionTime);
           phaseEl.textContent = derivative > 0 ? 'Вдох' : 'Выдох';
-          hintMotion.style.display = (motionEnabled && performance.now() - lastMotionTime > 2000) ? 'block' : 'none';
+
+          const timeSinceMotion = performance.now() - lastMotionTime;
+          const showHint = motionEnabled && timeSinceMotion > 2000 && !document.hidden;
+          hintMotion.style.display = showHint ? 'block' : 'none';
+        } else {
+          hintMotion.style.display = 'none';
         }
+
         drawCanvas(sessionTime);
       }
       requestAnimationFrame(animationLoop);
 
       // PWA
       (function() {
-        const manifest = { name: 'BreathSync', short_name: 'BreathSync', start_url: '.', display: 'standalone', background_color: '#1a1a2e', theme_color: '#1a1a2e', icons: [{ src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><circle cx="96" cy="96" r="96" fill="#1a1a2e"/><path d="M48 96 Q72 48 96 96 T144 96" fill="none" stroke="#6c63ff" stroke-width="12" stroke-linecap="round"/></svg>'), sizes: '192x192', type: 'image/svg+xml' }] };
+        const manifest = {
+          name: 'BreathSync',
+          short_name: 'BreathSync',
+          start_url: '.',
+          display: 'standalone',
+          background_color: '#1a1a2e',
+          theme_color: '#1a1a2e',
+          icons: [{
+            src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><circle cx="96" cy="96" r="96" fill="#1a1a2e"/><path d="M48 96 Q72 48 96 96 T144 96" fill="none" stroke="#6c63ff" stroke-width="12" stroke-linecap="round"/></svg>'),
+            sizes: '192x192',
+            type: 'image/svg+xml'
+          }]
+        };
         const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-        const link = document.createElement('link'); link.rel = 'manifest'; link.href = URL.createObjectURL(blob);
+        const link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = URL.createObjectURL(blob);
         document.head.appendChild(link);
 
         if ('serviceWorker' in navigator) {
-          const swCode = `const CACHE='breathsync-v06',URLS=['./','./index.html'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(l=>Promise.all(l.filter(n=>n!==CACHE).map(n=>caches.delete(n))))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
-          navigator.serviceWorker.register(URL.createObjectURL(new Blob([swCode], {type: 'application/javascript'})), {scope: './'});
+          const swCode = `const CACHE='breathsync-v07',URLS=['./','./index.html'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(l=>Promise.all(l.filter(n=>n!==CACHE).map(n=>caches.delete(n))))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
+          navigator.serviceWorker.register(URL.createObjectURL(new Blob([swCode], {type: 'application/javascript'})), {scope: './'})
+            .catch(() => {});
         }
       })();
     })();
