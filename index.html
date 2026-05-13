@@ -7,7 +7,7 @@
   content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
 />
 
-<title>BreathSync v0.12</title>
+<title>BreathSync v0.13</title>
 
 <style>
   * {
@@ -174,7 +174,7 @@
 
 <body>
 
-<div id="version-badge">v0.12</div>
+<div id="version-badge">v0.13</div>
 
 <canvas id="breathCanvas"></canvas>
 
@@ -309,122 +309,133 @@
 
   function handleMotion(event) {
 
-    const a = event.acceleration;
-    const g = event.accelerationIncludingGravity;
+  const g =
+    event.accelerationIncludingGravity;
 
-    if (!a || !g) return;
+  if (!g || g.z == null) return;
 
-    if (
-      a.x == null ||
-      a.y == null ||
-      a.z == null
-    ) {
-      return;
-    }
+  const nowMs = performance.now();
+  const nowSec = nowMs / 1000;
 
-    const nowMs = performance.now();
-    const nowSec = nowMs / 1000;
+  lastMotionTime = nowMs;
 
-    lastMotionTime = nowMs;
+  if (!running) return;
 
-    if (!running) return;
+  // --------------------------------------------------
+  // NORMALIZED Z GRAVITY
+  // --------------------------------------------------
 
-    // --------------------------------------------------
-    // НОРМАЛИЗОВАННАЯ ГРАВИТАЦИЯ
-    // --------------------------------------------------
+  const gLen = Math.sqrt(
+    g.x * g.x +
+    g.y * g.y +
+    g.z * g.z
+  );
 
-    const gLen = Math.sqrt(
-      g.x * g.x +
-      g.y * g.y +
-      g.z * g.z
-    );
+  if (gLen < 0.001) return;
 
-    if (gLen < 0.001) return;
+  // Нормализованный tilt signal
+  let raw = g.z / gLen;
 
-    const gx = g.x / gLen;
-    const gy = g.y / gLen;
-    const gz = g.z / gLen;
+  // --------------------------------------------------
+  // REMOVE DC
+  // --------------------------------------------------
 
-    // --------------------------------------------------
-    // ПРОЕКЦИЯ УСКОРЕНИЯ
-    // НА ОСЬ ГРАВИТАЦИИ
-    // --------------------------------------------------
+  // Медленный baseline
+  baseline =
+    0.995 * baseline +
+    0.005 * raw;
 
-    const raw =
-      a.x * gx +
-      a.y * gy +
-      a.z * gz;
+  raw = raw - baseline;
 
-    // --------------------------------------------------
-    // EMA FILTER
-    // --------------------------------------------------
+  // --------------------------------------------------
+  // DEADZONE
+  // --------------------------------------------------
 
-    filteredBreath =
-      BREATH_ALPHA * raw +
-      (1 - BREATH_ALPHA) * filteredBreath;
+  const DEADZONE = 0.0025;
 
-    // --------------------------------------------------
-    // AUTO SCALE
-    // --------------------------------------------------
+  if (Math.abs(raw) < DEADZONE) {
+    raw = 0;
+  }
 
-    const absVal =
-      Math.abs(filteredBreath);
+  // --------------------------------------------------
+  // CLAMP
+  // --------------------------------------------------
 
-    absHistory.push({
-      time: nowMs,
-      abs: absVal
-    });
+  raw = Math.max(
+    -0.08,
+    Math.min(0.08, raw)
+  );
 
-    while (
-      absHistory.length &&
-      nowMs - absHistory[0].time >
-      AMP_WINDOW_MS
-    ) {
-      absHistory.shift();
-    }
+  // --------------------------------------------------
+  // EMA SMOOTHING
+  // --------------------------------------------------
 
-    let maxAbs = 0.01;
+  filteredBreath =
+    0.06 * raw +
+    0.94 * filteredBreath;
 
-    for (const s of absHistory) {
-      if (s.abs > maxAbs) {
-        maxAbs = s.abs;
-      }
-    }
+  // --------------------------------------------------
+  // AUTO SCALE
+  // --------------------------------------------------
 
-    const targetScale =
-      Math.min(
-        5,
-        Math.max(
-          0.8,
-          1.0 / (maxAbs + 0.001)
-        )
-      );
+  const absVal =
+    Math.abs(filteredBreath);
 
-    scaleSmoothed =
-      scaleSmoothed * 0.94 +
-      targetScale * 0.06;
+  absHistory.push({
+    time: nowMs,
+    abs: absVal
+  });
 
-    // --------------------------------------------------
-    // BUFFER
-    // --------------------------------------------------
+  while (
+    absHistory.length &&
+    nowMs - absHistory[0].time >
+    AMP_WINDOW_MS
+  ) {
+    absHistory.shift();
+  }
 
-    const relativeTime =
-      nowSec - sessionStartSec;
+  let maxAbs = 0.003;
 
-    dataBuffer.push({
-      time: relativeTime,
-      value: filteredBreath
-    });
-
-    while (
-      dataBuffer.length &&
-      relativeTime -
-      dataBuffer[0].time >
-      VISIBLE_DURATION
-    ) {
-      dataBuffer.shift();
+  for (const s of absHistory) {
+    if (s.abs > maxAbs) {
+      maxAbs = s.abs;
     }
   }
+
+  const targetScale =
+    Math.min(
+      12,
+      Math.max(
+        2,
+        0.02 / maxAbs
+      )
+    );
+
+  scaleSmoothed =
+    0.98 * scaleSmoothed +
+    0.02 * targetScale;
+
+  // --------------------------------------------------
+  // BUFFER
+  // --------------------------------------------------
+
+  const relativeTime =
+    nowSec - sessionStartSec;
+
+  dataBuffer.push({
+    time: relativeTime,
+    value: filteredBreath
+  });
+
+  while (
+    dataBuffer.length &&
+    relativeTime -
+    dataBuffer[0].time >
+    VISIBLE_DURATION
+  ) {
+    dataBuffer.shift();
+  }
+}
 
   function startMotionListener() {
 
