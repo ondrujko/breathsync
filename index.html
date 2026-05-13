@@ -7,7 +7,7 @@
   content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
 />
 
-<title>BreathSync v0.15</title>
+<title>BreathSync v0.16</title>
 
 <style>
   * {
@@ -183,7 +183,7 @@
 
 <body>
 
-<div id="version-badge">v0.15</div>
+<div id="version-badge">v0.16</div>
 
 <canvas id="breathCanvas"></canvas>
 
@@ -368,8 +368,10 @@
   // намного чувствительнее чем чистый z
   let raw =
     (
-      g.z * 0.8 +
-      g.y * 0.2
+      // g.z * 0.8 +
+      // g.y * 0.2
+      g.y
+      
     ) / gLen;
   
   // --------------------------------------------------
