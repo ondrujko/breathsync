@@ -64,11 +64,21 @@
       const VISIBLE_DURATION = 20;
       const BUFFER_STEP = 0.05;
 
+      // Логические размеры (без учёта devicePixelRatio)
+      let logicalWidth = window.innerWidth;
+      let logicalHeight = window.innerHeight;
+
       function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        const dpr = window.devicePixelRatio || 1;
+        logicalWidth = window.innerWidth;
+        logicalHeight = window.innerHeight;
+        canvas.width = logicalWidth * dpr;
+        canvas.height = logicalHeight * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // масштабируем, чтобы координаты оставались логическими
       }
       window.addEventListener('resize', resizeCanvas);
+      // Обработка изменения ориентации (некоторые устройства не кидают resize)
+      window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 50));
       resizeCanvas();
 
       function fillBufferWithZeros(nowSec) {
@@ -163,7 +173,9 @@
       startBtn.addEventListener('click', toggleRunning);
 
       function drawCanvas(currentTimeSec) {
-        const w = canvas.width, h = canvas.height;
+        // Используем логические размеры (после scale они соответствуют 0..logicalWidth)
+        const w = logicalWidth;
+        const h = logicalHeight;
         ctx.clearRect(0, 0, w, h);
         const marginTop = 20, marginBottom = 20;
         const graphTop = marginTop, graphBottom = h - marginBottom;
@@ -188,13 +200,12 @@
         }
         ctx.stroke();
 
-        // Пользовательский сигнал с экстраполяцией влево и вправо
+        // Пользовательский сигнал (зелёный)
         if (dataBuffer.length > 0) {
           ctx.beginPath();
           ctx.strokeStyle = '#00ff88';
           ctx.lineWidth = 2.8;
 
-          // Первая и последняя точки буфера
           const firstPt = dataBuffer[0];
           const lastPt = dataBuffer[dataBuffer.length - 1];
           const firstX = w - (currentTimeSec - firstPt.time) * pxPerSec;
@@ -202,14 +213,13 @@
           const lastX = w - (currentTimeSec - lastPt.time) * pxPerSec;
           const lastY = midY - (lastPt.value * scaleSmoothed) * refAmplitude;
 
-          // Начинаем с левого края (экстраполяция)
+          // Экстраполяция от левого края
           ctx.moveTo(0, firstY);
-          // Если первая точка уже за левым краем, просто ведём к ней
           if (firstX > 0) {
             ctx.lineTo(firstX, firstY);
           }
 
-          // Все промежуточные точки
+          // Все точки
           for (let i = 0; i < dataBuffer.length; i++) {
             const pt = dataBuffer[i];
             const x = w - (currentTimeSec - pt.time) * pxPerSec;
@@ -218,7 +228,7 @@
             ctx.lineTo(x, y);
           }
 
-          // Продляем до правого края
+          // Продление до правого края
           ctx.lineTo(w, lastY);
           ctx.stroke();
         }
