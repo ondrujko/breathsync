@@ -7,7 +7,7 @@
   content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
 />
 
-<title>BreathSync v0.16</title>
+<title>BreathSync v0.17</title>
 
 <style>
   * {
@@ -183,7 +183,7 @@
 
 <body>
 
-<div id="version-badge">v0.16</div>
+<div id="version-badge">v0.17</div>
 
 <canvas id="breathCanvas"></canvas>
 
@@ -334,7 +334,7 @@
   function handleMotion(event) {
 
     const g =
-      event.accelerationIncludingGravity;
+      event.acceleration //IncludingGravity;
 
     if (!g || g.z == null) return;
 
