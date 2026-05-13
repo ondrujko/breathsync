@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>BreathSync</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a2e;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: white;
+      touch-action: manipulation;
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #ui-layer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 10;
+      padding: 2rem 1rem;
+    }
+
+    #permission-box {
+      background: rgba(26, 26, 46, 0.9);
+      backdrop-filter: blur(12px);
+      border-radius: 1.5rem;
+      padding: 2rem;
+      text-align: center;
+      pointer-events: auto;
+      max-width: 280px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    #permission-box p {
+      margin-bottom: 1.5rem;
+      font-size: 1rem;
+      line-height: 1.4;
+      color: #ccc;
+    }
+
+    button {
+      background: #6c63ff;
+      border: none;
+      color: white;
+      font-weight: 600;
+      padding: 0.75rem 2rem;
+      border-radius: 2rem;
+      font-size: 1rem;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      transition: background 0.2s;
+      pointer-events: auto;
+      box-shadow: 0 10px 20px rgba(108, 99, 255, 0.3);
+    }
+
+    button:active {
+      background: #5a52e0;
+    }
+
+    #main-ui {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      pointer-events: none;
+    }
+
+    #startBtn {
+      pointer-events: auto;
+      background: #6c63ff;
+    }
+
+    #hint-motion {
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      padding: 0.8rem 1.5rem;
+      border-radius: 2rem;
+      font-size: 0.95rem;
+      color: #ffb347;
+      text-align: center;
+      pointer-events: none;
+      display: none;
+    }
+
+    #phase-indicator {
+      font-size: 3rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: #ffffff;
+      text-shadow: 0 0 20px rgba(108, 99, 255, 0.5);
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
+      padding: 0.5rem 2rem;
+      border-radius: 3rem;
+      pointer-events: none;
+    }
+
+    /* hide main ui when permission needed */
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="breathCanvas"></canvas>
+
+  <div id="ui-layer">
+    <!-- Permission box (iOS) -->
+    <div id="permission-box" class="hidden">
+      <p>Для работы приложения разрешите доступ к датчикам движения</p>
+      <button id="enable-motion-btn">Разрешить</button>
+    </div>
+
+    <!-- Main UI -->
+    <div id="main-ui" class="hidden">
+      <div id="hint-motion">Положите телефон на живот</div>
+      <button id="startBtn">Старт</button>
+      <div id="phase-indicator">Вдох</div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // ---------- DOM elements ----------
+      const canvas = document.getElementById('breathCanvas');
+      const ctx = canvas.getContext('2d');
+      const permissionBox = document.getElementById('permission-box');
+      const enableMotionBtn = document.getElementById('enable-motion-btn');
+      const mainUI = document.getElementById('main-ui');
+      const startBtn = document.getElementById('startBtn');
+      const hintMotion = document.getElementById('hint-motion');
+      const phaseEl = document.getElementById('phase-indicator');
+
+      // ---------- Global state ----------
+      let running = false;
+      let startWallTime = null;      // reference time for continuous sine
+      let sessionTime = 0;          // current time of the reference wave (seconds)
+      let lastFrameTime = performance.now() / 1000;
+
+      // Motion data
+      let motionEnabled = false;
+      let lastMotionTime = 0;
+      const recentRawQueue = [];     // {time, raw} for moving average (2 sec)
+      const recentAbsQueue = [];     // {time, abs} for user amplitude (5 sec)
+      let prevFiltered = 0;
+      const ALPHA = 0.15;           // exponential smoothing factor
+      const AVG_WINDOW = 2000;      // 2 seconds for gravity estimation
+      const AMP_WINDOW = 5000;      // 5 seconds for amplitude tracking
+      let scaleSmoothed = 1.0;
+
+      // Data buffer for user signal (time in seconds)
+      const dataBuffer = [];         // {time, user}
+      const VISIBLE_DURATION = 20;  // seconds visible on canvas
+
+      // Canvas resize
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      // ---------- Motion handling ----------
+      function addMotionListener() {
+        if (window.DeviceMotionEvent) {
+          window.addEventListener('devicemotion', handleMotion);
+          motionEnabled = true;
+        }
+      }
+
+      function handleMotion(event) {
+        const acc = event.accelerationIncludingGravity;
+        if (!acc || acc.x === null) return;
+
+        const now = performance.now();
+        lastMotionTime = now;
+
+        if (!running) return; // ignore when paused
+
+        const raw = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+
+        // Moving average for gravity estimation
+        recentRawQueue.push({ time: now, raw });
+        while (recentRawQueue.length && now - recentRawQueue[0].time > AVG_WINDOW) {
+          recentRawQueue.shift();
+        }
+        let sumRaw = 0;
+        for (let i = 0; i < recentRawQueue.length; i++) sumRaw += recentRawQueue[i].raw;
+        const avg = sumRaw / recentRawQueue.length;
+
+        const detrended = raw - avg;
+
+        // Exponential smoothing (low‑pass)
+        const filtered = ALPHA * detrended + (1 - ALPHA) * prevFiltered;
+        prevFiltered = filtered;
+
+        // Track amplitude for auto‑scaling
+        const absVal = Math.abs(filtered);
+        recentAbsQueue.push({ time: now, abs: absVal });
+        while (recentAbsQueue.length && now - recentAbsQueue[0].time > AMP_WINDOW) {
+          recentAbsQueue.shift();
+        }
+        let maxAbs = 0.01;
+        for (let i = 0; i < recentAbsQueue.length; i++) {
+          if (recentAbsQueue[i].abs > maxAbs) maxAbs = recentAbsQueue[i].abs;
+        }
+        const targetScale = 1.0 / maxAbs;
+        scaleSmoothed = scaleSmoothed * 0.9 + targetScale * 0.1;
+
+        // Push to drawing buffer (time in seconds)
+        const timeSec = now / 1000;
+        dataBuffer.push({ time: timeSec, user: filtered });
+
+        // Remove old points beyond visible window
+        while (dataBuffer.length && timeSec - dataBuffer[0].time > VISIBLE_DURATION) {
+          dataBuffer.shift();
+        }
+      }
+
+      // ---------- iOS permission flow ----------
+      function requestMotionPermission() {
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+          DeviceMotionEvent.requestPermission()
+            .then(permissionState => {
+              if (permissionState === 'granted') {
+                enableMotion();
+              } else {
+                alert('Разрешение на датчики отклонено. Приложение не будет работать.');
+              }
+            })
+            .catch(console.error);
+        } else {
+          // Not required (Android, desktop)
+          enableMotion();
+        }
+      }
+
+      function enableMotion() {
+        addMotionListener();
+        permissionBox.classList.add('hidden');
+        mainUI.classList.remove('hidden');
+        // Default hint
+        hintMotion.style.display = 'none';
+      }
+
+      // Initial setup
+      if (window.DeviceMotionEvent) {
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+          // iOS: show permission button
+          permissionBox.classList.remove('hidden');
+          mainUI.classList.add('hidden');
+          enableMotionBtn.addEventListener('click', requestMotionPermission);
+        } else {
+          // Other platforms: directly enable
+          enableMotion();
+        }
+      } else {
+        // No DeviceMotion at all
+        permissionBox.classList.remove('hidden');
+        permissionBox.querySelector('p').textContent = 'Ваше устройство не поддерживает датчики движения.';
+        enableMotionBtn.style.display = 'none';
+      }
+
+      // ---------- Start / Stop ----------
+      function toggleRunning() {
+        if (!motionEnabled) {
+          alert('Сначала разрешите доступ к датчикам.');
+          return;
+        }
+
+        const now = performance.now() / 1000;
+
+        if (!running) {
+          // START
+          if (startWallTime === null) {
+            // First start: sessionTime = 0
+            startWallTime = now;
+            sessionTime = 0;
+          } else {
+            // Resume: maintain continuity
+            startWallTime = now - sessionTime;
+          }
+          running = true;
+          lastFrameTime = now;
+          startBtn.textContent = 'Стоп';
+          hintMotion.style.display = 'none'; // will be shown if no motion
+        } else {
+          // STOP
+          running = false;
+          sessionTime = now - startWallTime; // freeze
+          startBtn.textContent = 'Старт';
+        }
+      }
+
+      startBtn.addEventListener('click', toggleRunning);
+
+      // ---------- Animation loop ----------
+      function drawCanvas(currentTimeSec) {
+        const w = canvas.width;
+        const h = canvas.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        const graphMarginTop = 20;
+        const graphMarginBottom = 20;
+        const graphTop = graphMarginTop;
+        const graphBottom = h - graphMarginBottom;
+        const graphHeight = graphBottom - graphTop;
+        const midY = (graphTop + graphBottom) / 2;
+        const refAmplitude = graphHeight * 0.4;   // pixels for ±1
+        const pxPerSec = w / VISIBLE_DURATION;
+
+        // ---------- Draw reference sine wave (purple) ----------
+        ctx.beginPath();
+        ctx.strokeStyle = '#6c63ff';
+        ctx.lineWidth = 1.8;
+        let first = true;
+
+        const tStart = currentTimeSec - VISIBLE_DURATION;
+        const tEnd = currentTimeSec;
+        const step = 0.016; // ~60 fps detail
+        for (let t = tStart; t <= tEnd; t += step) {
+          const x = w - (currentTimeSec - t) * pxPerSec;
+          if (x < -1 || x > w + 1) continue;
+          const sineVal = Math.sin(2 * Math.PI * 0.1 * t);
+          const y = midY - sineVal * refAmplitude;
+          if (first) {
+            ctx.moveTo(x, y);
+            first = false;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+
+        // ---------- Draw user signal (green) ----------
+        if (dataBuffer.length > 1) {
+          ctx.beginPath();
+          ctx.strokeStyle = '#00ff88';
+          ctx.lineWidth = 2.8;
+          first = true;
+
+          for (let i = 0; i < dataBuffer.length; i++) {
+            const point = dataBuffer[i];
+            const x = w - (currentTimeSec - point.time) * pxPerSec;
+            if (x < -2 || x > w + 2) continue;
+            const scaled = point.user * scaleSmoothed;
+            const y = midY - scaled * refAmplitude;
+            if (first) {
+              ctx.moveTo(x, y);
+              first = false;
+            } else {
+              ctx.lineTo(x, y);
+            }
+          }
+          ctx.stroke();
+        }
+
+        // ---------- Optional grid lines ----------
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 0.5;
+        // horizontal center line
+        ctx.beginPath();
+        ctx.moveTo(0, midY);
+        ctx.lineTo(w, midY);
+        ctx.stroke();
+        // vertical time markers every 5 seconds
+        for (let t = Math.ceil(tStart / 5) * 5; t <= tEnd; t += 5) {
+          const x = w - (currentTimeSec - t) * pxPerSec;
+          if (x < 0 || x > w) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, graphTop);
+          ctx.lineTo(x, graphBottom);
+          ctx.stroke();
+        }
+      }
+
+      function animationLoop(timestamp) {
+        requestAnimationFrame(animationLoop);
+
+        const nowSec = timestamp / 1000;
+
+        // Update sessionTime and phase
+        if (running) {
+          sessionTime = nowSec - startWallTime;
+          // Phase indicator based on derivative of reference sine
+          const angle = 2 * Math.PI * 0.1 * sessionTime;
+          const derivative = Math.cos(angle);
+          phaseEl.textContent = derivative > 0 ? 'Вдох' : 'Выдох';
+
+          // Hint for motion presence
+          const timeSinceMotion = performance.now() - lastMotionTime;
+          if (motionEnabled && timeSinceMotion > 2000) {
+            hintMotion.style.display = 'block';
+          } else {
+            hintMotion.style.display = 'none';
+          }
+        } else {
+          // Keep last phase
+        }
+
+        drawCanvas(sessionTime);
+        lastFrameTime = nowSec;
+      }
+
+      // Start animation loop immediately (even before start, draws static reference)
+      requestAnimationFrame(animationLoop);
+
+      // ---------- PWA: manifest as blob ----------
+      function setupManifest() {
+        const manifest = {
+          name: 'BreathSync',
+          short_name: 'BreathSync',
+          start_url: '.',
+          display: 'standalone',
+          background_color: '#1a1a2e',
+          theme_color: '#1a1a2e',
+          icons: [
+            {
+              src: 'data:image/svg+xml;base64,' + btoa(`
+                <svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+                  <circle cx="96" cy="96" r="96" fill="#1a1a2e"/>
+                  <path d="M48 96 Q72 48 96 96 T144 96" fill="none" stroke="#6c63ff" stroke-width="12" stroke-linecap="round"/>
+                </svg>`),
+              sizes: '192x192',
+              type: 'image/svg+xml'
+            },
+            {
+              src: 'data:image/svg+xml;base64,' + btoa(`
+                <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+                  <circle cx="256" cy="256" r="256" fill="#1a1a2e"/>
+                  <path d="M128 256 Q192 128 256 256 T384 256" fill="none" stroke="#6c63ff" stroke-width="24" stroke-linecap="round"/>
+                </svg>`),
+              sizes: '512x512',
+              type: 'image/svg+xml'
+            }
+          ]
+        };
+
+        const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+        const manifestURL = URL.createObjectURL(blob);
+        const link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = manifestURL;
+        document.head.appendChild(link);
+      }
+
+      // ---------- PWA: service worker as blob ----------
+      function setupServiceWorker() {
+        if (!('serviceWorker' in navigator)) return;
+
+        const swCode = `
+          const CACHE_NAME = 'breathsync-v1';
+          const urlsToCache = [
+            './',
+            './index.html'
+          ];
+
+          self.addEventListener('install', event => {
+            event.waitUntil(
+              caches.open(CACHE_NAME)
+                .then(cache => cache.addAll(urlsToCache))
+                .then(() => self.skipWaiting())
+            );
+          });
+
+          self.addEventListener('activate', event => {
+            event.waitUntil(
+              caches.keys().then(cacheNames => {
+                return Promise.all(
+                  cacheNames.filter(name => name !== CACHE_NAME)
+                    .map(name => caches.delete(name))
+                );
+              })
+            );
+          });
+
+          self.addEventListener('fetch', event => {
+            event.respondWith(
+              caches.match(event.request)
+                .then(response => response || fetch(event.request))
+            );
+          });
+        `;
+
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        const swURL = URL.createObjectURL(blob);
+
+        navigator.serviceWorker.register(swURL, { scope: './' })
+          .then(reg => console.log('Service Worker registered'))
+          .catch(err => console.warn('SW registration failed:', err));
+      }
+
+      // Run PWA setup
+      setupManifest();
+      setupServiceWorker();
+
+    })();
+  </script>
+</body>
+</html>
