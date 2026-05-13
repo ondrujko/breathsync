@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>BreathSync v0.09</title>
+  <title>BreathSync v0.10</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: white; touch-action: manipulation; }
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <div id="version-badge">v0.08</div>
+  <div id="version-badge">v0.10</div>
   <canvas id="breathCanvas"></canvas>
   <div id="ui-layer">
     <div id="permission-box" class="hidden">
@@ -68,7 +68,7 @@
 
   // Увеличено с 0.15 → 0.35
   // сигнал стал заметно быстрее
-  const BREATH_ALPHA = 0.35;
+  const BREATH_ALPHA = 0.15;
 
   const gravSamples = [];
   let filteredBreath = 0;
