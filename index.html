@@ -5,113 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>BreathSync</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    html, body {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #1a1a2e;
-      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: white;
-      touch-action: manipulation;
-    }
-    canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-    #ui-layer {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: space-between;
-      pointer-events: none;
-      z-index: 10;
-      padding: 2rem 1rem;
-    }
-    #permission-box {
-      background: rgba(26, 26, 46, 0.9);
-      backdrop-filter: blur(12px);
-      border-radius: 1.5rem;
-      padding: 2rem;
-      text-align: center;
-      pointer-events: auto;
-      max-width: 280px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-    }
-    #permission-box p {
-      margin-bottom: 1.5rem;
-      font-size: 1rem;
-      line-height: 1.4;
-      color: #ccc;
-    }
-    button {
-      background: #6c63ff;
-      border: none;
-      color: white;
-      font-weight: 600;
-      padding: 0.75rem 2rem;
-      border-radius: 2rem;
-      font-size: 1rem;
-      letter-spacing: 0.5px;
-      cursor: pointer;
-      transition: background 0.2s;
-      pointer-events: auto;
-      box-shadow: 0 10px 20px rgba(108, 99, 255, 0.3);
-    }
-    button:active {
-      background: #5a52e0;
-    }
-    #main-ui {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1.5rem;
-      pointer-events: none;
-    }
-    #startBtn {
-      pointer-events: auto;
-      background: #6c63ff;
-    }
-    #hint-motion {
-      background: rgba(0, 0, 0, 0.6);
-      backdrop-filter: blur(8px);
-      padding: 0.8rem 1.5rem;
-      border-radius: 2rem;
-      font-size: 0.95rem;
-      color: #ffb347;
-      text-align: center;
-      pointer-events: none;
-      display: none;
-    }
-    #phase-indicator {
-      font-size: 3rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      color: #ffffff;
-      text-shadow: 0 0 20px rgba(108, 99, 255, 0.5);
-      background: rgba(0,0,0,0.3);
-      backdrop-filter: blur(10px);
-      padding: 0.5rem 2rem;
-      border-radius: 3rem;
-      pointer-events: none;
-    }
-    .hidden {
-      display: none !important;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: white; touch-action: manipulation; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+    #ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: none; z-index: 10; padding: 2rem 1rem; }
+    #permission-box { background: rgba(26, 26, 46, 0.9); backdrop-filter: blur(12px); border-radius: 1.5rem; padding: 2rem; text-align: center; pointer-events: auto; max-width: 280px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+    #permission-box p { margin-bottom: 1.5rem; font-size: 1rem; line-height: 1.4; color: #ccc; }
+    button { background: #6c63ff; border: none; color: white; font-weight: 600; padding: 0.75rem 2rem; border-radius: 2rem; font-size: 1rem; letter-spacing: 0.5px; cursor: pointer; transition: background 0.2s; pointer-events: auto; box-shadow: 0 10px 20px rgba(108, 99, 255, 0.3); }
+    button:active { background: #5a52e0; }
+    #main-ui { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; pointer-events: none; }
+    #startBtn { pointer-events: auto; background: #6c63ff; }
+    #hint-motion { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); padding: 0.8rem 1.5rem; border-radius: 2rem; font-size: 0.95rem; color: #ffb347; text-align: center; pointer-events: none; display: none; }
+    #phase-indicator { font-size: 3rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: #ffffff; text-shadow: 0 0 20px rgba(108, 99, 255, 0.5); background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); padding: 0.5rem 2rem; border-radius: 3rem; pointer-events: none; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
@@ -130,7 +36,6 @@
 
   <script>
     (function() {
-      // ---------- DOM ----------
       const canvas = document.getElementById('breathCanvas');
       const ctx = canvas.getContext('2d');
       const permissionBox = document.getElementById('permission-box');
@@ -140,31 +45,25 @@
       const hintMotion = document.getElementById('hint-motion');
       const phaseEl = document.getElementById('phase-indicator');
 
-      // ---------- Состояние ----------
       let running = false;
       let startWallTime = null;
       let sessionTime = 0;
       let motionEnabled = false;
       let lastMotionTime = 0;
 
-      // Фильтры (экспоненциальные, без оконной задержки)
       let gravityEstimate = 0;
       let filteredBreath = 0;
       const GRAVITY_ALPHA = 0.01;
       const BREATH_ALPHA = 0.03;
 
-      // Амплитудная нормализация
-      let maxAbsRecent = 0.01;
       let scaleSmoothed = 1.0;
       const AMP_WINDOW_MS = 5000;
       const absHistory = [];
 
-      // Буфер отрисовки
       const dataBuffer = [];
-      const VISIBLE_DURATION = 20; // секунд
-      const BUFFER_STEP = 0.05;    // шаг для предзаполнения (50 мс)
+      const VISIBLE_DURATION = 20;
+      const BUFFER_STEP = 0.05;
 
-      // ---------- Canvas ----------
       function resizeCanvas() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
@@ -172,19 +71,16 @@
       window.addEventListener('resize', resizeCanvas);
       resizeCanvas();
 
-      // ---------- Инициализация буфера нулями ----------
       function fillBufferWithZeros(nowSec) {
         dataBuffer.length = 0;
         for (let t = nowSec - VISIBLE_DURATION; t <= nowSec; t += BUFFER_STEP) {
           dataBuffer.push({ time: t, value: 0 });
         }
-        // убедимся, что последняя точка точно на nowSec
         if (dataBuffer.length === 0 || dataBuffer[dataBuffer.length-1].time < nowSec) {
           dataBuffer.push({ time: nowSec, value: 0 });
         }
       }
 
-      // ---------- Motion ----------
       function addMotionListener() {
         if (window.DeviceMotionEvent) {
           window.addEventListener('devicemotion', handleMotion);
@@ -197,55 +93,33 @@
         if (!acc || acc.x === null) return;
         const now = performance.now();
         lastMotionTime = now;
-
         if (!running) return;
 
         const raw = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
-
-        // Экспоненциальное скользящее среднее для гравитации
         gravityEstimate = GRAVITY_ALPHA * raw + (1 - GRAVITY_ALPHA) * gravityEstimate;
         const detrended = raw - gravityEstimate;
-
-        // НЧ-фильтр дыхания
         filteredBreath = BREATH_ALPHA * detrended + (1 - BREATH_ALPHA) * filteredBreath;
 
-        // Амплитудная нормализация с ограничением
         const absVal = Math.abs(filteredBreath);
         absHistory.push({ time: now, abs: absVal });
-        while (absHistory.length && now - absHistory[0].time > AMP_WINDOW_MS) {
-          absHistory.shift();
-        }
+        while (absHistory.length && now - absHistory[0].time > AMP_WINDOW_MS) absHistory.shift();
         let maxAbs = 0.01;
-        for (let i = 0; i < absHistory.length; i++) {
-          if (absHistory[i].abs > maxAbs) maxAbs = absHistory[i].abs;
-        }
+        for (let i = 0; i < absHistory.length; i++) if (absHistory[i].abs > maxAbs) maxAbs = absHistory[i].abs;
         const targetScale = Math.min(10.0, Math.max(0.5, 1.0 / (maxAbs + 0.001)));
-        scaleSmoothed = scaleSmoothed * 0.95 + targetScale * 0.05; // медленная адаптация
-        // Жёсткое ограничение на всякий случай
+        scaleSmoothed = scaleSmoothed * 0.95 + targetScale * 0.05;
         scaleSmoothed = Math.min(5.0, Math.max(0.5, scaleSmoothed));
 
-        // Добавление точки в буфер
         const timeSec = now / 1000;
         dataBuffer.push({ time: timeSec, value: filteredBreath });
-
-        // Удаление старых точек
-        while (dataBuffer.length && timeSec - dataBuffer[0].time > VISIBLE_DURATION) {
-          dataBuffer.shift();
-        }
+        while (dataBuffer.length && timeSec - dataBuffer[0].time > VISIBLE_DURATION) dataBuffer.shift();
       }
 
-      // ---------- iOS permission ----------
       function requestMotionPermission() {
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
           DeviceMotionEvent.requestPermission()
-            .then(state => {
-              if (state === 'granted') enableMotion();
-              else alert('Разрешение на датчики отклонено.');
-            })
+            .then(state => { if (state === 'granted') enableMotion(); else alert('Разрешение отклонено.'); })
             .catch(console.error);
-        } else {
-          enableMotion();
-        }
+        } else { enableMotion(); }
       }
 
       function enableMotion() {
@@ -254,44 +128,33 @@
         mainUI.classList.remove('hidden');
       }
 
-      // Инициализация
       if (window.DeviceMotionEvent) {
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
           permissionBox.classList.remove('hidden');
           mainUI.classList.add('hidden');
           enableMotionBtn.addEventListener('click', requestMotionPermission);
-        } else {
-          enableMotion();
-        }
+        } else { enableMotion(); }
       } else {
         permissionBox.classList.remove('hidden');
         permissionBox.querySelector('p').textContent = 'Устройство не поддерживает датчики движения.';
         enableMotionBtn.style.display = 'none';
       }
 
-      // ---------- Старт / Стоп ----------
       function toggleRunning() {
-        if (!motionEnabled) {
-          alert('Сначала разрешите доступ к датчикам.');
-          return;
-        }
+        if (!motionEnabled) { alert('Сначала разрешите доступ к датчикам.'); return; }
         const nowSec = performance.now() / 1000;
         if (!running) {
-          // СТАРТ: инициализируем буфер нулями и сбрасываем фильтры
           fillBufferWithZeros(nowSec);
           absHistory.length = 0;
           gravityEstimate = 0;
           filteredBreath = 0;
-          maxAbsRecent = 0.01;
           scaleSmoothed = 1.0;
-
           startWallTime = nowSec;
           sessionTime = 0;
           running = true;
           startBtn.textContent = 'Стоп';
           hintMotion.style.display = 'none';
         } else {
-          // СТОП
           sessionTime = nowSec - startWallTime;
           running = false;
           startBtn.textContent = 'Старт';
@@ -299,16 +162,11 @@
       }
       startBtn.addEventListener('click', toggleRunning);
 
-      // ---------- Отрисовка ----------
       function drawCanvas(currentTimeSec) {
-        const w = canvas.width;
-        const h = canvas.height;
+        const w = canvas.width, h = canvas.height;
         ctx.clearRect(0, 0, w, h);
-
-        const marginTop = 20;
-        const marginBottom = 20;
-        const graphTop = marginTop;
-        const graphBottom = h - marginBottom;
+        const marginTop = 20, marginBottom = 20;
+        const graphTop = marginTop, graphBottom = h - marginBottom;
         const graphHeight = graphBottom - graphTop;
         const midY = (graphTop + graphBottom) / 2;
         const refAmplitude = graphHeight * 0.4;
@@ -316,7 +174,7 @@
         const tStart = currentTimeSec - VISIBLE_DURATION;
         const tEnd = currentTimeSec;
 
-        // Эталонная синусоида (фиолетовая)
+        // Эталонная синусоида
         ctx.beginPath();
         ctx.strokeStyle = '#6c63ff';
         ctx.lineWidth = 1.8;
@@ -326,30 +184,41 @@
           if (x < -1 || x > w + 1) continue;
           const y = midY - Math.sin(2 * Math.PI * 0.1 * t) * refAmplitude;
           if (first) { ctx.moveTo(x, y); first = false; }
-          else { ctx.lineTo(x, y); }
+          else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Пользовательский сигнал (зелёный)
+        // Пользовательский сигнал с экстраполяцией влево и вправо
         if (dataBuffer.length > 0) {
           ctx.beginPath();
           ctx.strokeStyle = '#00ff88';
           ctx.lineWidth = 2.8;
-          first = true;
 
+          // Первая и последняя точки буфера
+          const firstPt = dataBuffer[0];
+          const lastPt = dataBuffer[dataBuffer.length - 1];
+          const firstX = w - (currentTimeSec - firstPt.time) * pxPerSec;
+          const firstY = midY - (firstPt.value * scaleSmoothed) * refAmplitude;
+          const lastX = w - (currentTimeSec - lastPt.time) * pxPerSec;
+          const lastY = midY - (lastPt.value * scaleSmoothed) * refAmplitude;
+
+          // Начинаем с левого края (экстраполяция)
+          ctx.moveTo(0, firstY);
+          // Если первая точка уже за левым краем, просто ведём к ней
+          if (firstX > 0) {
+            ctx.lineTo(firstX, firstY);
+          }
+
+          // Все промежуточные точки
           for (let i = 0; i < dataBuffer.length; i++) {
             const pt = dataBuffer[i];
             const x = w - (currentTimeSec - pt.time) * pxPerSec;
             if (x < -2 || x > w + 2) continue;
             const y = midY - (pt.value * scaleSmoothed) * refAmplitude;
-            if (first) { ctx.moveTo(x, y); first = false; }
-            else { ctx.lineTo(x, y); }
+            ctx.lineTo(x, y);
           }
 
-          // Продлеваем до правого края
-          const lastPt = dataBuffer[dataBuffer.length - 1];
-          const lastX = w - (currentTimeSec - lastPt.time) * pxPerSec;
-          const lastY = midY - (lastPt.value * scaleSmoothed) * refAmplitude;
+          // Продляем до правого края
           ctx.lineTo(w, lastY);
           ctx.stroke();
         }
@@ -366,52 +235,28 @@
       function animationLoop(timestamp) {
         requestAnimationFrame(animationLoop);
         const nowSec = timestamp / 1000;
-
         if (running) {
           sessionTime = nowSec - startWallTime;
           const derivative = Math.cos(2 * Math.PI * 0.1 * sessionTime);
           phaseEl.textContent = derivative > 0 ? 'Вдох' : 'Выдох';
-
-          const timeSinceMotion = performance.now() - lastMotionTime;
-          hintMotion.style.display = (motionEnabled && timeSinceMotion > 2000) ? 'block' : 'none';
+          hintMotion.style.display = (motionEnabled && performance.now() - lastMotionTime > 2000) ? 'block' : 'none';
         }
-
         drawCanvas(sessionTime);
       }
-
       requestAnimationFrame(animationLoop);
 
-      // ---------- PWA ----------
-      function setupManifest() {
-        const manifest = {
-          name: 'BreathSync',
-          short_name: 'BreathSync',
-          start_url: '.',
-          display: 'standalone',
-          background_color: '#1a1a2e',
-          theme_color: '#1a1a2e',
-          icons: [{
-            src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><circle cx="96" cy="96" r="96" fill="#1a1a2e"/><path d="M48 96 Q72 48 96 96 T144 96" fill="none" stroke="#6c63ff" stroke-width="12" stroke-linecap="round"/></svg>'),
-            sizes: '192x192',
-            type: 'image/svg+xml'
-          }]
-        };
+      // PWA
+      (function() {
+        const manifest = { name: 'BreathSync', short_name: 'BreathSync', start_url: '.', display: 'standalone', background_color: '#1a1a2e', theme_color: '#1a1a2e', icons: [{ src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><circle cx="96" cy="96" r="96" fill="#1a1a2e"/><path d="M48 96 Q72 48 96 96 T144 96" fill="none" stroke="#6c63ff" stroke-width="12" stroke-linecap="round"/></svg>'), sizes: '192x192', type: 'image/svg+xml' }] };
         const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-        const link = document.createElement('link');
-        link.rel = 'manifest';
-        link.href = URL.createObjectURL(blob);
+        const link = document.createElement('link'); link.rel = 'manifest'; link.href = URL.createObjectURL(blob);
         document.head.appendChild(link);
-      }
 
-      function setupServiceWorker() {
-        if (!('serviceWorker' in navigator)) return;
-        const swCode = `const CACHE='breathsync-v2',URLS=['./','./index.html'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(l=>Promise.all(l.filter(n=>n!==CACHE).map(n=>caches.delete(n))))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
-        const blob = new Blob([swCode], {type: 'application/javascript'});
-        navigator.serviceWorker.register(URL.createObjectURL(blob), {scope: './'});
-      }
-
-      setupManifest();
-      setupServiceWorker();
+        if ('serviceWorker' in navigator) {
+          const swCode = `const CACHE='breathsync-v2',URLS=['./','./index.html'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(l=>Promise.all(l.filter(n=>n!==CACHE).map(n=>caches.delete(n))))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
+          navigator.serviceWorker.register(URL.createObjectURL(new Blob([swCode], {type: 'application/javascript'})), {scope: './'});
+        }
+      })();
     })();
   </script>
 </body>
