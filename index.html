@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -7,7 +8,7 @@
   content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
 />
 
-<title>BreathSync v0.13</title>
+<title>BreathSync v0.14</title>
 
 <style>
   * {
@@ -45,17 +46,22 @@
   #ui-layer {
     position: fixed;
     inset: 0;
+
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    z-index: 10;
+
     padding: 2rem 1rem;
+
     pointer-events: none;
+
+    z-index: 10;
   }
 
   #version-badge {
     position: fixed;
+
     top: 10px;
     left: 10px;
 
@@ -84,38 +90,41 @@
 
     text-align: center;
 
-    pointer-events: auto;
-
     max-width: 320px;
 
-    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    pointer-events: auto;
+
+    box-shadow:
+      0 20px 40px rgba(0,0,0,0.5);
   }
 
   #permission-box p {
-    margin-bottom: 1.5rem;
-    line-height: 1.5;
     color: #ccc;
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
   }
 
   button {
-    background: #6c63ff;
     border: none;
+
+    background: #6c63ff;
 
     color: white;
 
     font-weight: 600;
 
+    font-size: 1rem;
+
     padding: 0.8rem 2rem;
 
-    border-radius: 2rem;
-
-    font-size: 1rem;
+    border-radius: 999px;
 
     cursor: pointer;
 
     pointer-events: auto;
 
-    box-shadow: 0 10px 20px rgba(108,99,255,0.3);
+    box-shadow:
+      0 10px 20px rgba(108,99,255,0.3);
   }
 
   button:active {
@@ -134,17 +143,17 @@
   }
 
   #hint-motion {
+    display: none;
+
     background: rgba(0,0,0,0.6);
 
     backdrop-filter: blur(8px);
 
-    padding: 0.8rem 1.5rem;
-
-    border-radius: 2rem;
-
     color: #ffb347;
 
-    display: none;
+    padding: 0.8rem 1.5rem;
+
+    border-radius: 999px;
   }
 
   #phase-indicator {
@@ -155,7 +164,8 @@
 
     letter-spacing: 0.2em;
 
-    text-shadow: 0 0 20px rgba(108,99,255,0.5);
+    text-shadow:
+      0 0 20px rgba(108,99,255,0.5);
 
     background: rgba(0,0,0,0.3);
 
@@ -163,7 +173,7 @@
 
     padding: 0.5rem 2rem;
 
-    border-radius: 3rem;
+    border-radius: 999px;
   }
 
   .hidden {
@@ -174,13 +184,14 @@
 
 <body>
 
-<div id="version-badge">v0.13</div>
+<div id="version-badge">v0.14</div>
 
 <canvas id="breathCanvas"></canvas>
 
 <div id="ui-layer">
 
   <div id="permission-box" class="hidden">
+
     <p id="perm-message">
       Разрешите доступ к датчикам движения
     </p>
@@ -188,12 +199,13 @@
     <button id="enable-motion-btn">
       Разрешить
     </button>
+
   </div>
 
   <div id="main-ui" class="hidden">
 
     <div id="hint-motion">
-      Положите телефон на грудь или живот
+      Положите телефон вертикально на диафрагму
     </div>
 
     <button id="startBtn">
@@ -205,13 +217,21 @@
     </div>
 
   </div>
+
 </div>
 
 <script>
 (function () {
 
-  const canvas = document.getElementById("breathCanvas");
-  const ctx = canvas.getContext("2d");
+  // --------------------------------------------------
+  // DOM
+  // --------------------------------------------------
+
+  const canvas =
+    document.getElementById("breathCanvas");
+
+  const ctx =
+    canvas.getContext("2d");
 
   const permissionBox =
     document.getElementById("permission-box");
@@ -253,18 +273,17 @@
   // SIGNAL
   // --------------------------------------------------
 
-  // EMA фильтр
-  // меньше = плавнее
-  // больше = быстрее
-  const BREATH_ALPHA = 0.22;
-
   let filteredBreath = 0;
 
-  // Автомасштаб
-  const absHistory = [];
-  const AMP_WINDOW_MS = 1200;
+  // Медленный baseline
+  let baseline = 0;
 
+  // Автомасштаб
   let scaleSmoothed = 1.0;
+
+  const absHistory = [];
+
+  const AMP_WINDOW_MS = 1400;
 
   // Буфер графика
   const dataBuffer = [];
@@ -280,11 +299,17 @@
     const dpr =
       window.devicePixelRatio || 1;
 
-    logicalWidth = window.innerWidth;
-    logicalHeight = window.innerHeight;
+    logicalWidth =
+      window.innerWidth;
 
-    canvas.width = logicalWidth * dpr;
-    canvas.height = logicalHeight * dpr;
+    logicalHeight =
+      window.innerHeight;
+
+    canvas.width =
+      logicalWidth * dpr;
+
+    canvas.height =
+      logicalHeight * dpr;
 
     ctx.setTransform(
       dpr,
@@ -309,133 +334,140 @@
 
   function handleMotion(event) {
 
-  const g =
-    event.accelerationIncludingGravity;
+    const g =
+      event.accelerationIncludingGravity;
 
-  if (!g || g.z == null) return;
+    if (!g || g.z == null) return;
 
-  const nowMs = performance.now();
-  const nowSec = nowMs / 1000;
+    if (!running) return;
 
-  lastMotionTime = nowMs;
+    const nowMs =
+      performance.now();
 
-  if (!running) return;
+    const nowSec =
+      nowMs / 1000;
 
-  // --------------------------------------------------
-  // NORMALIZED Z GRAVITY
-  // --------------------------------------------------
+    lastMotionTime = nowMs;
 
-  const gLen = Math.sqrt(
-    g.x * g.x +
-    g.y * g.y +
-    g.z * g.z
-  );
+    // --------------------------------------------------
+    // NORMALIZED GRAVITY
+    // --------------------------------------------------
 
-  if (gLen < 0.001) return;
-
-  // Нормализованный tilt signal
-  let raw = g.z / gLen;
-
-  // --------------------------------------------------
-  // REMOVE DC
-  // --------------------------------------------------
-
-  // Медленный baseline
-  baseline =
-    0.995 * baseline +
-    0.005 * raw;
-
-  raw = raw - baseline;
-
-  // --------------------------------------------------
-  // DEADZONE
-  // --------------------------------------------------
-
-  const DEADZONE = 0.0025;
-
-  if (Math.abs(raw) < DEADZONE) {
-    raw = 0;
-  }
-
-  // --------------------------------------------------
-  // CLAMP
-  // --------------------------------------------------
-
-  raw = Math.max(
-    -0.08,
-    Math.min(0.08, raw)
-  );
-
-  // --------------------------------------------------
-  // EMA SMOOTHING
-  // --------------------------------------------------
-
-  filteredBreath =
-    0.06 * raw +
-    0.94 * filteredBreath;
-
-  // --------------------------------------------------
-  // AUTO SCALE
-  // --------------------------------------------------
-
-  const absVal =
-    Math.abs(filteredBreath);
-
-  absHistory.push({
-    time: nowMs,
-    abs: absVal
-  });
-
-  while (
-    absHistory.length &&
-    nowMs - absHistory[0].time >
-    AMP_WINDOW_MS
-  ) {
-    absHistory.shift();
-  }
-
-  let maxAbs = 0.003;
-
-  for (const s of absHistory) {
-    if (s.abs > maxAbs) {
-      maxAbs = s.abs;
-    }
-  }
-
-  const targetScale =
-    Math.min(
-      12,
-      Math.max(
-        2,
-        0.02 / maxAbs
-      )
+    const gLen = Math.sqrt(
+      g.x * g.x +
+      g.y * g.y +
+      g.z * g.z
     );
 
-  scaleSmoothed =
-    0.98 * scaleSmoothed +
-    0.02 * targetScale;
+    if (gLen < 0.001) return;
 
-  // --------------------------------------------------
-  // BUFFER
-  // --------------------------------------------------
+    // --------------------------------------------------
+    // TILT SIGNAL
+    // --------------------------------------------------
 
-  const relativeTime =
-    nowSec - sessionStartSec;
+    let raw =
+      g.z / gLen;
 
-  dataBuffer.push({
-    time: relativeTime,
-    value: filteredBreath
-  });
+    // --------------------------------------------------
+    // REMOVE DC
+    // --------------------------------------------------
 
-  while (
-    dataBuffer.length &&
-    relativeTime -
-    dataBuffer[0].time >
-    VISIBLE_DURATION
-  ) {
-    dataBuffer.shift();
+    baseline =
+      0.995 * baseline +
+      0.005 * raw;
+
+    raw =
+      raw - baseline;
+
+    // --------------------------------------------------
+    // DEADZONE
+    // --------------------------------------------------
+
+    const DEADZONE = 0.0025;
+
+    if (Math.abs(raw) < DEADZONE) {
+      raw = 0;
+    }
+
+    // --------------------------------------------------
+    // CLAMP
+    // --------------------------------------------------
+
+    raw = Math.max(
+      -0.08,
+      Math.min(0.08, raw)
+    );
+
+    // --------------------------------------------------
+    // EMA FILTER
+    // --------------------------------------------------
+
+    filteredBreath =
+      0.06 * raw +
+      0.94 * filteredBreath;
+
+    // --------------------------------------------------
+    // AUTO SCALE
+    // --------------------------------------------------
+
+    const absVal =
+      Math.abs(filteredBreath);
+
+    absHistory.push({
+      time: nowMs,
+      abs: absVal
+    });
+
+    while (
+      absHistory.length &&
+      nowMs - absHistory[0].time >
+      AMP_WINDOW_MS
+    ) {
+      absHistory.shift();
+    }
+
+    let maxAbs = 0.003;
+
+    for (const s of absHistory) {
+      if (s.abs > maxAbs) {
+        maxAbs = s.abs;
+      }
+    }
+
+    const targetScale =
+      Math.min(
+        14,
+        Math.max(
+          2,
+          0.02 / maxAbs
+        )
+      );
+
+    scaleSmoothed =
+      0.985 * scaleSmoothed +
+      0.015 * targetScale;
+
+    // --------------------------------------------------
+    // BUFFER
+    // --------------------------------------------------
+
+    const relativeTime =
+      nowSec - sessionStartSec;
+
+    dataBuffer.push({
+      time: relativeTime,
+      value: filteredBreath
+    });
+
+    while (
+      dataBuffer.length &&
+      relativeTime -
+      dataBuffer[0].time >
+      VISIBLE_DURATION
+    ) {
+      dataBuffer.shift();
+    }
   }
-}
 
   function startMotionListener() {
 
@@ -464,7 +496,9 @@
         .then(state => {
 
           if (state === "granted") {
+
             enableMotion();
+
           } else {
 
             permMessage.textContent =
@@ -483,9 +517,13 @@
 
   function enableMotion() {
 
-    permissionBox.classList.add("hidden");
+    permissionBox.classList.add(
+      "hidden"
+    );
 
-    mainUI.classList.remove("hidden");
+    mainUI.classList.remove(
+      "hidden"
+    );
 
     startMotionListener();
   }
@@ -498,7 +536,9 @@
       "function"
     ) {
 
-      permissionBox.classList.remove("hidden");
+      permissionBox.classList.remove(
+        "hidden"
+      );
 
       enableMotionBtn.addEventListener(
         "click",
@@ -512,7 +552,9 @@
 
   } else {
 
-    permissionBox.classList.remove("hidden");
+    permissionBox.classList.remove(
+      "hidden"
+    );
 
     permMessage.textContent =
       "Датчики движения не поддерживаются";
@@ -527,7 +569,11 @@
   function toggleRunning() {
 
     if (!motionEnabled) {
-      alert("Разрешите доступ к датчикам");
+
+      alert(
+        "Разрешите доступ к датчикам"
+      );
+
       return;
     }
 
@@ -537,6 +583,7 @@
       absHistory.length = 0;
 
       filteredBreath = 0;
+      baseline = 0;
       scaleSmoothed = 1.0;
 
       sessionStartSec =
@@ -590,7 +637,7 @@
       w / VISIBLE_DURATION;
 
     // --------------------------------------------------
-    // REFERENCE SINE
+    // REFERENCE
     // --------------------------------------------------
 
     ctx.beginPath();
@@ -622,7 +669,10 @@
       const y =
         midY -
         Math.sin(
-          2 * Math.PI * 0.1 * t
+          2 *
+          Math.PI *
+          0.1 *
+          t
         ) * refAmplitude;
 
       if (first) {
@@ -766,3 +816,4 @@
 
 </body>
 </html>
+```
