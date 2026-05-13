@@ -3,12 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>BreathSync</title>
+  <title>BreathSync v0.06</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: white; touch-action: manipulation; }
     canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
     #ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: none; z-index: 10; padding: 2rem 1rem; }
+    #version-badge {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(6px);
+      color: #aaa;
+      font-size: 0.7rem;
+      padding: 0.25rem 0.7rem;
+      border-radius: 1rem;
+      z-index: 20;
+      pointer-events: none;
+    }
     #permission-box { background: rgba(26, 26, 46, 0.9); backdrop-filter: blur(12px); border-radius: 1.5rem; padding: 2rem; text-align: center; pointer-events: auto; max-width: 280px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
     #permission-box p { margin-bottom: 1.5rem; font-size: 1rem; line-height: 1.4; color: #ccc; }
     button { background: #6c63ff; border: none; color: white; font-weight: 600; padding: 0.75rem 2rem; border-radius: 2rem; font-size: 1rem; letter-spacing: 0.5px; cursor: pointer; transition: background 0.2s; pointer-events: auto; box-shadow: 0 10px 20px rgba(108, 99, 255, 0.3); }
@@ -21,6 +34,7 @@
   </style>
 </head>
 <body>
+  <div id="version-badge">v0.06</div>
   <canvas id="breathCanvas"></canvas>
   <div id="ui-layer">
     <div id="permission-box" class="hidden">
@@ -51,20 +65,22 @@
       let motionEnabled = false;
       let lastMotionTime = 0;
 
+      // ФИЛЬТРЫ С НИЗКОЙ ЗАДЕРЖКОЙ
       let gravityEstimate = 0;
       let filteredBreath = 0;
-      const GRAVITY_ALPHA = 0.01;
-      const BREATH_ALPHA = 0.03;
+      const GRAVITY_ALPHA = 0.1;   // было 0.01 – срезало задержку high-pass
+      const BREATH_ALPHA = 0.08;   // немного увеличено для быстрого отклика
 
+      // Амплитудная нормализация (ускорено)
       let scaleSmoothed = 1.0;
-      const AMP_WINDOW_MS = 5000;
+      const AMP_WINDOW_MS = 3000;  // 3 секунды вместо 5
       const absHistory = [];
 
+      // Буфер отрисовки
       const dataBuffer = [];
-      const VISIBLE_DURATION = 20;
-      const BUFFER_STEP = 0.05;
+      const VISIBLE_DURATION = 20; // секунд на экране
+      const PREfill_SEC = 0.5;     // заполняем нулями только последние 0.5 с, чтобы не было длинной плоской линии
 
-      // Логические размеры (без учёта devicePixelRatio)
       let logicalWidth = window.innerWidth;
       let logicalHeight = window.innerHeight;
 
@@ -74,16 +90,16 @@
         logicalHeight = window.innerHeight;
         canvas.width = logicalWidth * dpr;
         canvas.height = logicalHeight * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // масштабируем, чтобы координаты оставались логическими
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
       window.addEventListener('resize', resizeCanvas);
-      // Обработка изменения ориентации (некоторые устройства не кидают resize)
       window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 50));
       resizeCanvas();
 
       function fillBufferWithZeros(nowSec) {
         dataBuffer.length = 0;
-        for (let t = nowSec - VISIBLE_DURATION; t <= nowSec; t += BUFFER_STEP) {
+        // Заполняем только небольшой "хвост", чтобы линия сразу появилась, но плоская часть быстро ушла
+        for (let t = nowSec - PREfill_SEC; t <= nowSec; t += 0.05) {
           dataBuffer.push({ time: t, value: 0 });
         }
         if (dataBuffer.length === 0 || dataBuffer[dataBuffer.length-1].time < nowSec) {
@@ -106,22 +122,31 @@
         if (!running) return;
 
         const raw = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+
+        // High-pass для удаления гравитации (быстрый α)
         gravityEstimate = GRAVITY_ALPHA * raw + (1 - GRAVITY_ALPHA) * gravityEstimate;
         const detrended = raw - gravityEstimate;
+
+        // Low-pass для выделения дыхания (увеличенный α)
         filteredBreath = BREATH_ALPHA * detrended + (1 - BREATH_ALPHA) * filteredBreath;
 
+        // Амплитудная адаптация
         const absVal = Math.abs(filteredBreath);
         absHistory.push({ time: now, abs: absVal });
         while (absHistory.length && now - absHistory[0].time > AMP_WINDOW_MS) absHistory.shift();
         let maxAbs = 0.01;
         for (let i = 0; i < absHistory.length; i++) if (absHistory[i].abs > maxAbs) maxAbs = absHistory[i].abs;
         const targetScale = Math.min(10.0, Math.max(0.5, 1.0 / (maxAbs + 0.001)));
-        scaleSmoothed = scaleSmoothed * 0.95 + targetScale * 0.05;
+        scaleSmoothed = scaleSmoothed * 0.9 + targetScale * 0.1;  // быстрее адаптация (было 0.95/0.05)
         scaleSmoothed = Math.min(5.0, Math.max(0.5, scaleSmoothed));
 
         const timeSec = now / 1000;
         dataBuffer.push({ time: timeSec, value: filteredBreath });
-        while (dataBuffer.length && timeSec - dataBuffer[0].time > VISIBLE_DURATION) dataBuffer.shift();
+
+        // Удаляем точки старше видимого окна
+        while (dataBuffer.length && timeSec - dataBuffer[0].time > VISIBLE_DURATION) {
+          dataBuffer.shift();
+        }
       }
 
       function requestMotionPermission() {
@@ -173,9 +198,7 @@
       startBtn.addEventListener('click', toggleRunning);
 
       function drawCanvas(currentTimeSec) {
-        // Используем логические размеры (после scale они соответствуют 0..logicalWidth)
-        const w = logicalWidth;
-        const h = logicalHeight;
+        const w = logicalWidth, h = logicalHeight;
         ctx.clearRect(0, 0, w, h);
         const marginTop = 20, marginBottom = 20;
         const graphTop = marginTop, graphBottom = h - marginBottom;
@@ -200,7 +223,7 @@
         }
         ctx.stroke();
 
-        // Пользовательский сигнал (зелёный)
+        // Пользовательский сигнал
         if (dataBuffer.length > 0) {
           ctx.beginPath();
           ctx.strokeStyle = '#00ff88';
@@ -215,11 +238,8 @@
 
           // Экстраполяция от левого края
           ctx.moveTo(0, firstY);
-          if (firstX > 0) {
-            ctx.lineTo(firstX, firstY);
-          }
+          if (firstX > 0) ctx.lineTo(firstX, firstY);
 
-          // Все точки
           for (let i = 0; i < dataBuffer.length; i++) {
             const pt = dataBuffer[i];
             const x = w - (currentTimeSec - pt.time) * pxPerSec;
@@ -228,7 +248,6 @@
             ctx.lineTo(x, y);
           }
 
-          // Продление до правого края
           ctx.lineTo(w, lastY);
           ctx.stroke();
         }
@@ -263,7 +282,7 @@
         document.head.appendChild(link);
 
         if ('serviceWorker' in navigator) {
-          const swCode = `const CACHE='breathsync-v2',URLS=['./','./index.html'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(l=>Promise.all(l.filter(n=>n!==CACHE).map(n=>caches.delete(n))))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
+          const swCode = `const CACHE='breathsync-v06',URLS=['./','./index.html'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(l=>Promise.all(l.filter(n=>n!==CACHE).map(n=>caches.delete(n))))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
           navigator.serviceWorker.register(URL.createObjectURL(new Blob([swCode], {type: 'application/javascript'})), {scope: './'});
         }
       })();
